@@ -11,6 +11,12 @@ symptoms <- factor(c("SEVERE", "MILD", "MODERATE"),levels = c("MILD", "MODERATE"
 # Create a data frame from patient data vectors
 pt_data <- data.frame(subject_name, temperature, flu_status, gender, blood, symptoms, stringsAsFactors= FALSE)
 
+# Matrix with default column-major order
+m <- matrix(c(1, 2, 3, 4, 5, 6), nrow = 2)
+
+# Matrix with row first load order
+m2 <- matrix(c(1, 2, 3, 4, 5, 6), nrow = 2, byrow = TRUE)
+
 # Functions in R
 addArgs<-function(x,...)
 {
