@@ -1,0 +1,284 @@
+---
+title: "Assignment 3"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+
+# Machine Learning Assignment 3
+
+Hands on with Regression
+
+## Problem 1
+
+```{r}
+options(scipen=999)
+# Libraries
+library(caret)
+library(leaps)
+library(rpart)
+library(rpart.plot)
+```
+
+### Question 1
+
+- 777 Observations
+- Categoric/Numeric
+  - Categoric: 2
+    - X (name of college) is unique per observation and is more of a key
+  - Numeric: 17
+- No nulls, 2 values in perc.alumni are 0 but that is a reasonable value in data
+
+```{r}
+college <- read.csv("data/College.csv", stringsAsFactors=TRUE)
+# Summary of data
+summary(college)
+# View Null and NA
+colSums(college == 0 | is.na(college))
+```
+
+### Question 2
+
+Remove name of college column
+
+```{r}
+college$X <- NULL
+```
+
+### Question 3
+
+Variables Accept, Enroll, F.Undergrad for numeric and Private for categoric. 
+P.Undergrad, PhD, Terminal, Top25perc, and Top10perc could be used as a last
+effort but the correlation is much lower at .3-.4
+
+```{r}
+# Numeric
+## Series of functions to pivot large correlation table and display 
+numCols <- sapply(college, is.numeric)
+college_cor <- cor(college[,numCols])
+cor_df <- as.data.frame(as.table(college_cor))
+cor_apps <- cor_df[cor_df$Var1=="Apps", ]
+cor_apps[order(-cor_apps$Freq),]
+
+# Categoric
+t.test(college$Apps~college$Private, alternative="two.sided")
+plot(college$Apps~college$Private, col="red")
+```
+
+### Question 4
+
+The plot for Apps is a right tail histogram. What this shows is a large
+proportion of colleges receive a small number of applications (more than 600 
+colleges receive less than 10000 applications). Outliers are pulling the 
+histogram to the right and causing larger buckets as well, further skewing plot.
+
+```{r}
+hist(college$Apps)
+```
+
+### Question 5
+
+Distribution is now corrected and more symmetric after replacing with logarithm
+of Apps.
+
+```{r}
+college$Apps <- log(college$Apps)
+hist(college$Apps)
+```
+
+### Question 6
+
+Replaced Top10perc with Elite column
+
+```{r}
+college$Elite <- as.factor(ifelse(college$Top10perc >= 50, "Yes", "No"))
+college$Top10perc <- NULL
+```
+
+### Question 7
+
+There is a statistically significant difference as shown by the p-value<alpha 
+and side by side box plot. "Yes" has a statistically different mean that is 
+higher than "No". Thus, it may benefit using the new Elite feature that was 
+based on the previously not recommended Top10perc feature.
+
+```{r}
+# Categoric
+t.test(college$Apps~college$Elite, alternative="two.sided")
+plot(college$Apps~college$Elite, col="red")
+```
+
+### Question 8
+
+Data split on initial run according to 80% or apprxoimately 621 observations.
+
+```{r}
+smp_size <- floor(.80 * nrow(college))
+smp_size_plus <- smp_size+1
+pop_size <- as.numeric(nrow(college))
+
+college_train <- college[1:smp_size,]
+college_test <- college[smp_size_plus:pop_size,]
+```
+
+### Question 9
+
+```{r}
+set.seed(123)
+```
+
+### Question 10
+
+Linear Regression with 10 fold cross validation with all features. The model 
+shows PrivateYes, Accept, Enroll, S.F.Ratio, Expend, and Grad.Rate as all 
+statistically different from 0. This means these variables have a statistically
+significant effect on the outcome variable Apps.
+
+Mistake: train() function was used on college instead of college_train
+
+```{r}
+set.seed(123)
+attach(college)
+train.control <- trainControl(method="cv", number=10)
+college_kf <- train(Apps~., 
+                      data=college, # should be college_train
+                      method="lm", 
+                      trControl=train.control)
+print(college_kf)
+summary(college_kf)
+```
+
+### Question 11
+
+```{r}
+set.seed(123)
+college_pred <- predict(college_kf, college_test)
+RMSE <- sqrt(mean(abs(college_test$Apps-college_pred)^2))
+RMSE
+```
+
+### Question 12
+
+```{r}
+set.seed(123)
+
+```
+
+### Question 13
+
+nvmax=13 has the lowest cross validation RMSE of .5477043. Variables selected
+were PrivateYes, Accept, Enroll, Top25perc, F.Undergrad, Outstate, Room.Board,
+Books, PhD, S.F.Ratio, perc.alumni, Expend, and Grad.Rate.
+
+```{r}
+set.seed(123)
+train.control <- trainControl(method="cv", number=10)
+college_stepBk <- train(Apps~.,
+                        data=college_train,
+                        method="leapBackward",
+                        trControl=train.control,
+                        tuneGrid=data.frame(nvmax=1:16))
+#print(college_stepBk)
+summary(college_stepBk$finalModel)
+```
+
+### Question 14
+
+RMSE was ~.489 for the Stepwise Backward function. 
+
+```{r}
+college_stepBk_pred <- predict(college_stepBk, college_test)
+RMSE_stepBk <- sqrt(mean(abs(college_test$Apps-college_stepBk_pred)^2))
+RMSE_stepBk
+```
+
+### Question 15
+
+```{r}
+college_rpart <- rpart(Apps~., data=college_train)
+college_rpart_pred <- predict(college_rpart, college_test)
+
+RMSE_rpart <- sqrt(mean(abs(college_test$Apps-college_rpart_pred)^2))
+RMSE_rpart
+```
+
+### Question 16
+
+The RMSE for Linear Regression, Stepwise Regression, and the Regression Tree is 
+.529, .489, and .299, respectively. This indicates the Regression Tree model has
+a better error rate, although this may need to be tested against new data.
+
+## Problem 2
+
+### Question 1
+
+Read in data, no observed nulls or zero values. Create train and test set.
+
+```{r}
+set.seed(123)
+credit <- read.csv("data/credit.csv", stringsAsFactors=TRUE)
+# Summary of data
+summary(credit)
+# View Null and NA
+colSums(credit == 0 | is.na(credit))
+# split train and test set
+train_sample <- sample(1000, 900)
+credit_train <- credit[train_sample,]
+credit_test <- credit[-train_sample,]
+```
+
+### Question 2
+
+Train using glm to predict default on test
+
+```{r}
+library(gmodels)
+set.seed(123)
+credit_glm <- glm(credit_train$default~., data=credit_train, family="binomial")
+credit_pred <- predict(credit_glm, credit_test, type="response")
+credit_pred_label <- as.factor(ifelse(credit_pred>.5, "yes", "no"))
+```
+
+### Question 3
+
+7 out of 65 no default were categorized as yes default by the model, this is a 
+FPR of ~13%. The model is a ~8% worse to the C5 after improvement but better 
+some other methods tested based on the FPR.
+
+```{r}
+t=table(credit_test$default, credit_pred_label)
+FPR=t[1,2]/(t[1,2]+t[1,1])
+FPR
+CrossTable(credit_pred_label, credit_test$default, 
+           prop.chisq=FALSE, 
+           prop.t=FALSE,
+           dnn=c("predicted","actual"))
+```
+
+### Question 4
+
+FPR was ~29.9% and FNR ~20.3%, so this method is worse for FPR and better for 
+FNR. This is quite interesting as there are more Yes values now in the training
+set. In the case of this dataset it may be better to not change the sampling 
+because it is only a 70/30 split for No/Yes. If the original dataset was closer
+to 90/10 or 95/5 it may have shown an improvement over original models.
+
+```{r}
+set.seed(123)
+library(DMwR)
+# Over sample using SMOTE
+credit_smote <- SMOTE(default~., data=credit_train, perc.over=100)
+# Train new model
+credit_smote_glm <- glm(credit_smote$default~., data=credit_smote, family="binomial")
+credit_smote_pred <- predict(credit_smote_glm, credit_test, type="response")
+credit_smote_pred_label <- as.factor(ifelse(credit_smote_pred>.5, "yes", "no"))
+# View FPR/FNR and error rate
+t=table(credit_test$default, credit_smote_pred_label)
+FPR=t[1,2]/(t[1,2]+t[1,1])
+FPR
+CrossTable(credit_smote_pred_label, credit_test$default, 
+           prop.chisq=FALSE, 
+           prop.t=FALSE,
+           dnn=c("predicted","actual"))
+```
+

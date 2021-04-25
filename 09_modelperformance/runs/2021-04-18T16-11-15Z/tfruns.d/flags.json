@@ -1,0 +1,9 @@
+{
+  "nodes": 128,
+  "batch_size": 100,
+  "activation": "tanh",
+  "learning_rate": 0.0001,
+  "epochs": 30,
+  "dropout1": 0.5,
+  "dropout2": 0.5
+}

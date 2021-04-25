@@ -1,0 +1,20 @@
+
+> # Parameters for dataset
+> FLAGS <-flags(flag_numeric("nodes", 128),
++               flag_numeric("batch_size", 100),
++               flag_string("a ..." ... [TRUNCATED] 
+
+> # Model
+> model <- keras_model_sequential() %>%
++   layer_dense(units=FLAGS$nodes, activation=FLAGS$activation, input_shape=c(10000)) %>%
++   layer_ .... [TRUNCATED] 
+
+> # Compile Model
+> model %>% compile(optimizer = optimizer_adam(lr=FLAGS$learning_rate), 
++                   loss = 'sparse_categorical_crossentropy .... [TRUNCATED] 
+
+> # Train Model
+> model %>% fit(train_data, 
++               train_labels, 
++               epochs=FLAGS$epochs, 
++               batch_size=FLAGS$bat .... [TRUNCATED] 

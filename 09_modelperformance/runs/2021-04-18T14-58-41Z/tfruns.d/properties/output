@@ -1,0 +1,31 @@
+
+> # Parameters for dataset
+> FLAGS <-flags(flag_numeric("nodes", 128),
++               flag_numeric("batch_size", 100),
++               flag_string("a ..." ... [TRUNCATED] 
+
+> # Model
+> model = keras_model_sequential() %>%
++   layer_dense(units=FLAGS$nodes, 
++               activation=FLAGS$activation,
++               inpu .... [TRUNCATED] 
+
+> # Compile Model
+> model %>% compile(loss="mse",
++                   optimizer=optimizer_adam(lr=FLAGS$learning_rate)
++ )
+
+> # Train Model
+> history <- model %>% fit(housing_train_n, 
++                          housing_train_labels, 
++                          batch_size=F .... [TRUNCATED] 
+
+> # Predict
+> predict_labels <- model %>% predict(housing_test_n)
+
+> rmse <- function(x,y) {
++   return((mean((x-y)^2))^.5)
++ }
+
+> rmse(predict_labels,housing_test_labels)
+[1] 0.4556374

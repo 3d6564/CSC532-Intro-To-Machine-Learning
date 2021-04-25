@@ -1,0 +1,8 @@
+{
+  "nodes": 128,
+  "batch_size": 200,
+  "activation": "sigmoid",
+  "learning_rate": 0.0001,
+  "epochs": 30,
+  "dropout": 0.5
+}

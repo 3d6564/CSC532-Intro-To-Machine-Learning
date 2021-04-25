@@ -1,0 +1,8 @@
+{
+  "nodes": 392,
+  "batch_size": 500,
+  "activation": "relu",
+  "learning_rate": 0.001,
+  "epochs": 100,
+  "dropout": 0.5
+}

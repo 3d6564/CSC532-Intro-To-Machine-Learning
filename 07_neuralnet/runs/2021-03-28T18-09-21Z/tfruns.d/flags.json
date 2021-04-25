@@ -1,0 +1,8 @@
+{
+  "nodes": 16,
+  "batch_size": 50,
+  "activation": "relu",
+  "learning_rate": 0.05,
+  "epochs": 30,
+  "optimizer": "adam"
+}

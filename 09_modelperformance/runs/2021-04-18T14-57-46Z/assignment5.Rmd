@@ -1,0 +1,337 @@
+---
+title: "Assignment 5"
+output: html_notebook
+---
+
+## Packages 
+
+```{r}
+library(forcats)
+library(caret)
+library(dplyr)
+library(ggplot2)
+library(tensorflow)
+library(keras)
+library(reticulate)
+library(tfruns)
+install_keras(method="conda", envname="r", tensorflow="gpu")
+```
+
+
+## Section 1 - Data Cleaning
+
+### Q1
+
+- categorical - 47
+- numeric - 33 (including SalePrice)
+- 1 id field
+
+```{r}
+housing = read.csv("data/housing.csv", stringsAsFactors=TRUE)
+summary(housing)
+```
+
+### Q2
+
+- LotFrontage, Alley, MasVnrType, MasVnrArea, BsmtQual, BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, Electrical, FireplaceQu, GarageType, GarageYrBlt, GarageFinish, GarageQual, GarageCond, PoolQC, Fence, MiscFeature
+- Percents below
+- Note: Some columns NA means none of that feature instead of NA
+```{r}
+colMeans(is.na(housing))
+```
+
+### Q3
+
+Remove outliers
+
+```{r}
+options(scipen=999)
+plot(housing$SalePrice)
+boxplot(housing$SalePrice)
+housing = housing[housing$SalePrice < 700000,]
+```
+
+### Q4-Q5
+
+High percent NA - LotFrontage (18%)
+Low percent NA - MasVnrType (<1%), MasVnrArea (<1%), Electrical (<1%)
+
+```{r}
+housing$Alley = fct_explicit_na(housing$Alley, na_level="notApp")
+housing$BsmtQual = fct_explicit_na(housing$BsmtQual, na_level="notApp")
+housing$BsmtCond = fct_explicit_na(housing$BsmtCond, na_level="notApp")
+housing$BsmtExposure = fct_explicit_na(housing$BsmtExposure, na_level="notApp")
+housing$BsmtFinType1 = fct_explicit_na(housing$BsmtFinType1, na_level="notApp")
+housing$BsmtFinType2 = fct_explicit_na(housing$BsmtFinType2, na_level="notApp")
+housing$FireplaceQu = fct_explicit_na(housing$FireplaceQu, na_level="notApp")
+housing$GarageType = fct_explicit_na(housing$GarageType, na_level="notApp")
+housing$GarageYrBlt[is.na(housing$GarageYrBlt)] = 0
+housing$GarageFinish = fct_explicit_na(housing$GarageFinish, na_level="notApp")
+housing$GarageQual = fct_explicit_na(housing$GarageQual, na_level="notApp")
+housing$GarageCond = fct_explicit_na(housing$GarageCond, na_level="notApp")
+housing$PoolQC = fct_explicit_na(housing$PoolQC, na_level="notApp")
+housing$Fence = fct_explicit_na(housing$Fence, na_level="notApp")
+housing$MiscFeature = fct_explicit_na(housing$MiscFeature, na_level="notApp")
+
+# COlumns to factor
+housing$MSSubClass = as.factor(housing$MSSubClass)
+housing$OverallCond = as.factor(housing$OverallCond)
+housing$OverallQual = as.factor(housing$OverallQual)
+
+# Fitler difficult records/columns
+housing$Id = NULL
+housing = housing[!is.na(housing$MasVnrArea),]
+
+colMeans(is.na(housing))
+```
+
+### Q6
+
+Percent of rows with no missing values: 81.27%
+
+```{r}
+mean(complete.cases(housing))
+```
+
+## Section 2 - Data Exploration
+
+### Q8
+
+The skew of SalePrice is right skewed. After log transforming the SalePrice column
+the histogram is now approximately normal.
+
+```{r}
+hist(housing$SalePrice)
+housing$SalePrice = log(housing$SalePrice)
+hist(housing$SalePrice)
+```
+
+### Q9
+
+- Possible Correlation: MSZoning, Lot Frontage, Alley, LotShape, LandContour, Utilities,
+Neighborhood, Condition1, Condition2, BldgType, HouseStyle, OverallQual, RoofStyle, 
+RoofMatl, Exterior1st, Exterior2nd, MasVnrType, ExterQual, ExterCond, Foundation, 
+BsmtQual, BsmtCond, BsmtExposure, BsmtFinType1, BsmtFinType2, TotalBsmtSF, Heating, 
+HeatingQC, CentralAir, Electrical, X1stFlrSf, GrLivArea, FullBath, KitchenQual, 
+TotRmsAbvGrd, Functional, Fireplaces, FireplaceQu, GarageType, GarageFinish, GarageCars, 
+GarageArea, GarageQual, GarageCond, PavedDrive, PoolQC, MiscFeature,SaleType, 
+SaleCondition, YearBuilt, YearRemodAdd
+
+- Other columns have very low correlation or plot is difficult to determine
+
+```{r}
+library(ggplot2)
+library(reshape2)
+
+plot(SalePrice~., data=housing)
+
+# Some Int variables should be ignored because they are not numeric by definition
+get_upper_matrix = function(matrix){
+    matrix[lower.tri(matrix)] = NA
+    return(matrix)
+  }
+corr_mat = melt(get_upper_matrix(cor(housing[sapply(housing,is.numeric)])))
+ggplot(data = corr_mat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color="white") +
+  scale_fill_gradient2(midpoint=0,limit=c(-1,1)) +
+  theme(axis.text.x=element_text(angle=90, vjust=.4, hjust=1))
+```
+
+## Train and Test Sets
+
+### Q10 - Missing Values
+
+Categoric - MasVnrType (<1%), Electrical (<1%)
+Numeric - LotFrontage (18%), MasVnrArea (<1%)
+
+```{r}
+set.seed(1)
+
+train_index = createDataPartition(housing$SalePrice, p=0.8, list=FALSE)
+housing_train = housing[train_index,]
+housing_test = housing[-train_index,]
+
+t = table(housing_train$MasVnrType)
+housing_train$MasVnrType = fct_explicit_na(housing_train$MasVnrType, na_level=names(t[t == max(t)]))
+housing_test$MasVnrType = fct_explicit_na(housing_test$MasVnrType, na_level=names(t[t == max(t)]))
+
+t = table(housing_train$Electrical)
+housing_train$Electrical = fct_explicit_na(housing_train$Electrical, na_level=names(t[t == max(t)]))
+housing_test$Electrical = fct_explicit_na(housing_test$Electrical, na_level=names(t[t == max(t)]))
+
+dummy = dummyVars(" ~ .", data=housing)
+housing_train = data.frame(predict(dummy, newdata=housing_train))
+housing_test = data.frame(predict(dummy, newdata=housing_test))
+
+# Verify categoric nulls removed
+colMeans(is.na(housing_train))
+```
+
+## Section 3.1 - Create Predictive Models
+
+### Q11 - Lasso
+
+Lasso shrunk many coefficients to zero. These variables are considered irrelevant
+to the lasso algorithm.
+
+```{r}
+library(RANN)
+set.seed(1)
+lasso = train(SalePrice~., data=housing_train,
+              method="glmnet",
+              preProcess="knnImpute",
+              na.action=na.pass,
+              trControl=trainControl("cv", number=10),
+              tuneGrid=expand.grid(alpha=1, lambda=10^seq(-3,3, length=100)))
+
+lasso_predict = predict(lasso, housing_test, na.action=na.pass)
+RMSE(lasso_predict, housing_test$SalePrice)
+coef(lasso$finalModel, lasso$BestTune$lambda)
+
+```
+
+### Q12 - Ridge
+
+```{r}
+set.seed(1)
+ridge = train(SalePrice~., data=housing_train,
+              method="glmnet",
+              preProcess="knnImpute",
+              na.action=na.pass,
+              trControl=trainControl("cv", number=10),
+              tuneGrid=expand.grid(alpha=0, lambda=10^seq(-3,3, length=100)))
+
+ridge_predict = predict(ridge, housing_test, na.action=na.pass)
+RMSE(ridge_predict, housing_test$SalePrice)
+
+```
+
+### Q13 - Elastic net
+
+```{r}
+set.seed(1)
+enet = train(SalePrice~., data=housing_train,
+              method="glmnet",
+              preProcess="knnImpute",
+              na.action=na.pass,
+              trControl=trainControl("cv", number=10),
+              tuneGrid=expand.grid(alpha=seq(0,1, length=10), lambda=10^seq(-3,3, length=100)))
+
+enet_predict = predict(enet, housing_test, na.action=na.pass)
+RMSE(enet_predict, housing_test$SalePrice)
+
+```
+
+## Section 3.2 - Tree-Ensemble Model
+
+### Q14 - Random Forest
+
+GrLivArea, TotalBsmtSF,X2ndFlrSF,X1stFlrSF,BsmtFinSF1,GarageArea,YearBuilt,
+FireplaceQunotApp,and TotRmsAbvGrd were the top 10 most predictive variables.
+
+```{r}
+set.seed(1)
+rfm = train(SalePrice~., data=housing_train,
+            method="rf",
+            preProcess="knnImpute",
+            na.action=na.pass,
+            trControl=trainControl("cv", number=10),
+            tuneGrid=expand.grid(mtry= c(2, 4, 8, 16)),
+            importance=T)
+
+rfm_predict = predict(rfm, housing_test, na.action=na.pass)
+RMSE(rfm_predict, housing_test$SalePrice)
+varImp(rfm)
+```
+
+### Q15 - Gradient Boosted Tree
+
+```{r}
+set.seed(1)
+gbm = train(SalePrice~., data=housing_train,
+            method="gbm",
+            na.action=na.pass,
+            trControl=trainControl("cv", number=10))
+
+gbm_predict = predict(gbm, housing_test, na.action=na.pass)
+RMSE(gbm_predict, housing_test$SalePrice)
+```
+
+### Q16 - Resamples
+
+According to the plots and values below, the Elastic Net or Lasso models are likely the best 
+performing model. Their values match for performance. They have the lowest MAE,
+highest R^2, and their RMSE is very low. 
+
+```{r}
+results = resamples(list(L=lasso,Rdg=ridge,E=enet,RF=rfm,GBM=gbm))
+summary(results)
+bwplot(results, scales=list(relation="free"))
+```
+
+## Section 3.3 Neural Network
+
+### Q17 - Split Training and Validation
+
+```{r}
+set.seed(1)
+
+val_index = createDataPartition(housing$SalePrice, p=0.1, list=FALSE)
+housing_train_n = housing[-val_index,]
+housing_val_labels = housing[val_index,80]
+housing_val_n = housing[val_index,-80]
+
+test_index = createDataPartition(housing_train_n$SalePrice, p=0.2, list=FALSE)
+housing_test_labels = housing_train_n[test_index,80]
+housing_test_n = housing_train_n[test_index,-80]
+housing_train_labels = housing_train_n[-test_index,80]
+housing_train_n = housing_train_n[-test_index,-80]
+
+t = table(housing_train_n$MasVnrType)
+housing_train_n$MasVnrType = fct_explicit_na(housing_train_n$MasVnrType, na_level=names(t[t == max(t)]))
+housing_test_n$MasVnrType = fct_explicit_na(housing_test_n$MasVnrType, na_level=names(t[t == max(t)]))
+housing_val_n$MasVnrType = fct_explicit_na(housing_val_n$MasVnrType, na_level=names(t[t == max(t)]))
+
+t = table(housing_train_n$Electrical)
+housing_train_n$Electrical = fct_explicit_na(housing_train_n$Electrical, na_level=names(t[t == max(t)]))
+housing_test_n$Electrical = fct_explicit_na(housing_test_n$Electrical, na_level=names(t[t == max(t)]))
+housing_val_n$Electrical = fct_explicit_na(housing_val_n$Electrical, na_level=names(t[t == max(t)]))
+```
+
+### Q18 - Imputation
+
+```{r}
+preproc = preProcess(housing_train_n, method="knnImpute")
+train_impute = predict(preproc, housing_train_n)
+test_impute = predict(preproc, housing_test_n)
+val_impute = predict(preproc, housing_val_n)
+```
+
+### Q19 - One-hot Encoding
+
+```{r}
+set.seed(1)
+dummy = dummyVars(" ~ .", data=housing[,-80])
+housing_train_n = data.matrix(predict(dummy, newdata=train_impute))
+housing_test_n = data.matrix(predict(dummy, newdata=test_impute))
+housing_val_n = data.matrix(predict(dummy, newdata=val_impute))
+```
+
+### Q20 - Neural Network
+
+- 2 hidden layers
+
+#### Tuning Run
+
+```{r}
+set.seed(1)
+runs <- tuning_run("house_tuning.R", 
+                   flags = list(nodes=c(64, 128, 392),
+                                learning_rate=c(0.01, 0.05, 0.001, 0.0001), 
+                                batch_size=c(100,200,500,1000),
+                                epochs=c(30,50,100),
+                                activation=c("relu","sigmoid","tanh")),
+                   sample = 0.02 # Take a 2% sample of the entire 432 combinations
+                   )
+```
+

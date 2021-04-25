@@ -1,0 +1,4 @@
+{
+  "loss": [34.476, 31.1721, 28.788, 26.6421, 24.394, 22.2078, 20.2016, 18.1976, 16.1862, 14.2301, 12.4345, 10.8127, 9.301, 8.0543, 6.9893, 6.078, null, null, null, null, null, null, null, null, null, null, null, null, null, null],
+  "val_loss": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]
+}

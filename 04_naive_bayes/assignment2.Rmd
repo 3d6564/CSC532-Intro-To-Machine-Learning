@@ -1,0 +1,437 @@
+---
+title: "Assignment 2"
+output: html_notebook
+---
+
+This assignment is to compare output of KNN to Naive Bayes for predicting 
+whether someone will make more than 50k/year based on features in the data using
+a binary classifier. 
+
+### Packages
+
+```{r}
+library(gmodels)
+library(data.table)
+library(mltools)
+library(caret)
+library(class)
+```
+
+## Problem 1
+
+### Data Exploration
+
+Import the data set, add the header manually, and validate data is imported 
+correctly. White space needed to be dropped, header set as vector and added, 
+import string columns as character columns, and output was reviewed.
+
+#### Q1: 
+Done
+
+
+```{r}
+## Question 1
+header = c("age",
+           "workclass",
+           "fnlwgt",
+           "education",
+           "educationnum",
+           "maritalstatus",
+           "occupation",
+           "relationship",
+           "race",
+           "sex",
+           "capitalgain",
+           "capitalloss",
+           "hoursperweek",
+           "nativecountry",
+           "income")
+adults = read.csv("data/adult.data", 
+                  header=FALSE,
+                  col.names=header,
+                  strip.white=TRUE)
+```
+
+#### Q2: 
+
+- Categoric: 10
+  - workclass, education, educationnum, maritalstatus, occupation, relationship,
+  race, sex, nativecountry, income (dependent variable)
+    - educationnum is an integer value but technically has no measurable
+    distance between values. the difference between 8th and 9th grade is not the
+    same as the distance between 14th and 15th grade. This is also hard to 
+    translate between countries.
+
+- Numeric: 5
+  - age, fnlwgt, capitalgain, capitalloss, hoursperweek
+
+- Nulls: None
+
+- Missing values: 
+  - workclass has 1836 missing values, nativecountry has 583 missing values 
+  - capitalgain has 29849 zero values, capitalloss has 31042 zero values
+    - capitalgain and capitalloss may be columns to exclude due to zero values
+
+```{r}
+## Question 2
+#str(adults)
+
+### Categoric
+summary(adults[,sapply(adults, is.factor)])
+### Numeric
+summary(adults[, !sapply(adults, is.factor)])
+
+### NA values
+# colSums(is.na(adults))
+# apply(is.na(adults), 2, which) 
+colSums(adults == 0 | is.na(adults))
+```
+
+#### Q3: 
+The data is skewed towards incomes less than 50k. This distribution is ~5% 
+different from the 2016 US Census Bureau population survey.
+
+```{r}
+prop.table(table(adults$income))
+```
+
+#### Q4: 
+
+- Numeric Features
+  - Candidates for model: age, educationnum, hoursperweek
+    - These attributes show a clear difference in the mean and other summary 
+    statistics
+  - Not selected: fnlwgt
+  - Possible candidate to drop: capitalgain, capitalloss
+    - fnlwgt is just the repre
+- Categoric Features
+  - Candidates for model: workclass, education, maritalstatus, occupation,
+  relationship, race, sex, nativecountry
+    - No reason to include both education and educationnum, they represent the
+    same value
+    - all p-values < 0, 
+    
+```{r}
+plot(adults$age~adults$income, col="red", 
+     xlab="income", ylab="age")
+plot(adults$fnlwgt~adults$income, col="red", 
+     xlab="income", ylab="fnlwgt")
+plot(adults$educationnum~adults$income, col="red", 
+     xlab="income", ylab="educationnum")
+plot(adults$capitalgain~adults$income, col="red", 
+     xlab="income", ylab="capitalgain")
+plot(adults$capitalloss~adults$income, col="red", 
+     xlab="income", ylab="capitalloss")
+plot(adults$hoursperweek~adults$income, col="red", 
+     xlab="income", ylab="hours/week")
+```
+
+
+```{r}
+options(scipen=999)
+table(adults$income, adults$workclass)
+table(adults$income, adults$education)
+table(adults$income, adults$maritalstatus)
+table(adults$income, adults$occupation)
+table(adults$income, adults$relationship)
+table(adults$income, adults$race)
+table(adults$income, adults$sex)
+table(adults$income, adults$nativecountry)
+
+#CrossTable(x=adults$income, y=adults$workclass)
+chisq.test(adults$income, adults$workclass)
+#CrossTable(x=adults$income, y=adults$education)
+chisq.test(adults$income, adults$education)
+#CrossTable(x=adults$income, y=adults$maritalstatus)
+chisq.test(adults$income, adults$maritalstatus)
+#CrossTable(x=adults$income, y=adults$occupation)
+chisq.test(adults$income, adults$occupation)
+#CrossTable(x=adults$income, y=adults$relationship)
+chisq.test(adults$income, adults$relationship)
+#CrossTable(x=adults$income, y=adults$race)
+chisq.test(adults$income, adults$race)
+#CrossTable(x=adults$income, y=adults$sex)
+chisq.test(adults$income, adults$sex)
+#CrossTable(x=adults$income, y=adults$nativecountry)
+chisq.test(adults$income, adults$nativecountry)
+
+unique(adults[c("education","educationnum")])
+adults$educationnum <- NULL
+adults$fnlwgt <- NULL
+#adults$capitalgain <- NULL
+#adults$capitalloss <- NULL
+```
+
+### Data Preparation
+
+#### Q5:
+
+Replace ?s
+```{r}
+adults[adults == "?"] <- NA
+summary(adults[,sapply(adults, is.factor)])
+```
+
+#### Q6:
+
+Used earlier for data exploration but:
+
+- workclass - 1836
+- occupation - 1843
+- nativecountry - 583
+```{r}
+colSums(is.na(adults))
+```
+
+#### Q7:
+
+There were no null values in any numeric columns, null values in 3 categoric
+columns were replaced with the mode/majority value of the respective column.
+
+```{r}
+wc = table(adults$workclass)
+adults$workclass[is.na(adults$workclass)] <- names(wc[wc == max(wc)])
+
+oc = table(adults$occupation)
+adults$occupation[is.na(adults$occupation)] <- names(oc[oc == max(oc)])
+
+nc = table(adults$nativecountry)
+adults$nativecountry[is.na(adults$nativecountry)] <- names(nc[nc == max(nc)])
+
+colSums(is.na(adults))
+```
+
+#### Q8:
+
+One Hot encoding to pivot category levels into binary columns. Assigned back to
+data frame.
+
+```{r}
+adults_labels <- adults$income
+adults$income <- NULL
+adults_dt <- data.table(adults)
+adults_dt_oh <- one_hot(adults_dt, dropUnusedLevels=TRUE, dropCols=TRUE)
+adults_dt <- as.data.frame(adults_dt_oh)
+adults_dt$income <- adults_labels
+```
+
+#### Q9:
+
+Set seed, but it needs set in each code block because of notebook design.
+
+```{r}
+set.seed(1)
+```
+
+#### Q10:
+
+Min-Max Scaling or Normalize numeric features
+
+```{r}
+normalize <- function(x) {
+  return ((x-min(x)) / (max(x)-min(x)))
+}
+adults_n <- adults_dt
+#adults_n[c("age","capitalgain","capitalloss","hoursperweek")] <- 
+#  sapply(adults[c("age","capitalgain","capitalloss","hoursperweek")],normalize)
+adults_n[c("age","hoursperweek")] <- 
+  sapply(adults[c("age","hoursperweek")],normalize)
+summary(adults_n[c("age","hoursperweek")])
+```
+
+#### Q11:
+
+Randomize the order of the data
+
+```{r}
+set.seed(1)
+adults_n <- adults_n[sample(nrow(adults_n), replace=FALSE), ]
+adults_n_labels <- adults_n$income
+adults_n$income <- NULL
+```
+
+#### Q12:
+
+5-fold crossvalidation with KNN. Error is approximately ~14%. 
+
+```{r}
+set.seed(1)
+## K fold function
+knn_fold <- function(features, target, fold, k) {
+  train=features[-fold, ]
+  validation=features[fold, ]
+  train_labels=target[-fold]
+  validation_labels=target[fold]
+  validation_preds=knn(train, validation, train_labels, k=k)
+  t=table(validation_labels, validation_preds)
+  error=(t[1,2]+t[2,1]) / (t[1,1]+t[1,2]+t[2,1]+t[2,2])
+  return(error)
+}
+## Crossvalidation function to create folds and pass necessary
+crossValidationError <- function(features, target, k) {
+  folds=createFolds(target, k=10)
+  errors=sapply(folds, knn_fold, features=features, target=target, k=k)
+  return(mean(errors))
+}
+
+crossValidationError(adults_n, adults_n_labels, k=5)
+```
+
+#### Q13:
+
+Tuning K with different values. A K value between 55 and 60 will work best. A k 
+value between 20 and 25 obtains an error of ~13-14 percent. K=24 may be best 
+with a error of 13.59 percent. k=1,5,10,20,50,100,sqrt(n) was tested and then 
+additional values to validate. If capitalgains and capitalloss are removed then 
+the <=50K error can be decreased by a few percentage points at the cost of 
+the >50K error.
+
+```{r}
+set.seed(1)
+n <- nrow(adults_n)
+#ks <- c(20, 50, 55, 57, 60, 100)
+ks <- c(10,20,25, 30,35, 40, 50, 60, 70)
+#ks <- c(21,22,23,24)
+errors <- sapply(ks, 
+                 crossValidationError, 
+                 features=adults_n, 
+                 target=adults_n_labels)
+plot(errors~ks, main="Cross Validation Error VsK",
+     xlab="k",
+     ylab="CVError")
+lines(errors~ks)
+```
+
+#### Q14:
+
+Use 5-fold cross validation to report FPR and FNR. >50K error is ~8.2% and <=50K 
+error is ~33.99%.
+
+```{r}
+set.seed(1)
+## K fold function
+knn_fold_FPR_FNR <- function(features, target, fold, k) {
+  train=features[-fold, ]
+  validation=features[fold, ]
+  train_labels=target[-fold]
+  validation_labels=target[fold]
+  validation_preds=knn(train, validation, train_labels, k=k)
+  t=table(validation_labels, validation_preds)
+  # Column 1 is <=50K and Column 2 is >50K
+  FPR=t[1,2]/(t[1,2]+t[1,1]) # Actually >50K but predicted as <=50K
+  FNR=t[2,1]/(t[2,1]+t[2,2]) # Actually <=50K but predicted as >50K
+  OVR=(t[1,2]+t[2,1]) / (t[1,1]+t[1,2]+t[2,1]+t[2,2])
+  return(c(">50k error"=FPR,"<=50K error"=FNR, "Overall"=OVR))
+}
+
+## Crossvalidation function to create folds and pass necessary
+crossValidationError_FPR_FNR <- function(features, target, k) {
+  folds=createFolds(target, k=10)
+  errors=sapply(folds, knn_fold_FPR_FNR, features=features, target=target, k=k)
+  return(rowMeans(errors))
+}
+
+crossValidationError_FPR_FNR(adults_n, adults_n_labels, k=5)
+```
+
+#### Q15:
+
+The training error would be ~24% because all >50K would be classified incorrect
+and all <=50K would be correct. The total proportion is approximately 24%. This 
+alone indicates it would be better overall to use KNN versus majority 
+classifier. Looking more specifically at the FPR and FNR for majority classifier 
+and KNN shows it is indeed better to use KNN. The total error being ~10% less 
+than the majority classifier error.
+
+#### Q16:
+
+The majority classifier's FPR is 0% while the FNR is 100% and this leads to an
+overall error of ~24%. This occurs if <=50K is considered the negative class and
+when all are classified as <=50K then no data points are predicted as the 
+positive class of >50K. Meanwhile, all of the >50K are classified wrong and that
+will produce a FNR of 100%. The KNN model had an error of ~8% of >50K (FPR) and 
+~34% of <=50K (FNR) with an overall error of ~14.4%. The cost to have an 
+improved FNR is the 8% increase in the FPR.
+
+## Problem 2
+
+#### Q1:
+
+```{r}
+set.seed(1)
+```
+
+#### Q2:
+
+educationnum and fnlwgt were decided to be removed earlier and that should still
+work. 
+
+```{r}
+str(adults)
+```
+
+#### Q3:
+
+Overall error is ~18%,the FPR is ~5.6%, and the FNR is ~58.5%. 
+
+```{r}
+library(e1071)
+set.seed(1)
+smp_size <- floor(.85 * nrow(adults))
+smp_size_plus <- smp_size+1
+pop_size <- as.numeric(nrow(adults))
+
+adults_train <- adults[1:smp_size,]
+adults_test <- adults[smp_size_plus:pop_size,]
+
+adults_train_labels <- adults_labels[1:smp_size]
+adults_test_labels <- adults_labels[smp_size_plus:pop_size]
+
+# Non K-fold method
+adults_classifier <- naiveBayes(adults_train, adults_train_labels)
+adults_test_pred <- predict(adults_classifier, adults_test)
+
+#CrossTable(adults_test_pred, adults_test_labels, prop.chisq=FALSE, prop.t=FALSE,
+#           dnn=c("predicted","actual"))
+
+# K-fold method
+naiveBayes_fold <- function(fold, features, target, laplace=0) {
+  train = features[-fold,]
+  validation = features[fold,]
+  train_labels = target[-fold]
+  validation_labels = target[fold]
+  NaiveBayes_model = naiveBayes(train,train_labels,laplace=laplace)
+  validation_preds = predict(NaiveBayes_model, validation)
+  t = table(validation_labels,validation_preds)
+  FPR = t[1,2]/(t[1,2]+t[1,1]) # Actually >50K but predicted <=50K
+  FNR = t[2,1]/(t[2,1]+t[2,2])# Actually <=50K but predicted >50K
+  OVR=(t[1,2]+t[2,1]) / (t[1,1]+t[1,2]+t[2,1]+t[2,2])
+  return (c(">50K error"=FPR,"<=50K error"=FNR, "Overall"=OVR))
+}
+
+crossValidationError_nb <- function(features, target, laplace=0, n_folds) {
+  folds = createFolds(target,k=n_folds)
+  errors = sapply(folds, naiveBayes_fold, features=features, target=target,
+               laplace=laplace)
+  return(rowMeans(errors))
+}
+
+errors <- crossValidationError_nb(features=rbind(adults_train, adults_test), 
+                               target=adults_labels, 
+                               n_folds=5)
+print(errors)
+```
+
+#### Q4:
+
+The cross validation error compared to KNN is worse for Gaussian Naive Bayes 
+overall. The >50K error is ~3% better but the <=50K error is ~35% worse. Overall
+the error rate is ~4% worse. Even with different sample sizes for the training
+set, the overall error changes minimally.
+
+#### Q5:
+
+The FPR and FNR for the majority classifier are the same as discussed in problem
+#1. The Gaussian Naive Bayes FPR was ~5.6% and the FNR was ~58.5%. This is 
+better than the FNR of majority classifier at the cost of the FPR but the
+overall is ~6% better.

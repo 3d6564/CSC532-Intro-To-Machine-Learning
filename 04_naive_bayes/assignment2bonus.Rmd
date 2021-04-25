@@ -1,0 +1,160 @@
+---
+title: "Assignment 2 Bonus Problem"
+output: html_notebook
+---
+
+This is a bonus problem to take a look at reasons why a model's output is likely
+biased. The goal will be to look at undersampling the majority and oversampling
+the minority.
+
+### Packages
+
+```{r}
+library(gmodels)
+library(data.table)
+library(mltools)
+library(caret)
+library(class)
+library(e1071)
+```
+
+### Data Exploration
+
+```{r}
+set.seed(1)
+### Import
+header = c("age",
+           "workclass",
+           "fnlwgt",
+           "education",
+           "educationnum",
+           "maritalstatus",
+           "occupation",
+           "relationship",
+           "race",
+           "sex",
+           "capitalgain",
+           "capitalloss",
+           "hoursperweek",
+           "nativecountry",
+           "income")
+adults = read.csv("data/adult.data", 
+                  header=FALSE,
+                  col.names=header,
+                  strip.white=TRUE)
+
+adults_bkp <- adults
+
+### Clean
+adults$educationnum <- NULL
+adults$fnlwgt <- NULL
+adults[adults == "?"] <- NA
+
+wc = table(adults$workclass)
+adults$workclass[is.na(adults$workclass)] <- names(wc[wc == max(wc)])
+
+oc = table(adults$occupation)
+adults$occupation[is.na(adults$occupation)] <- names(oc[oc == max(oc)])
+
+nc = table(adults$nativecountry)
+adults$nativecountry[is.na(adults$nativecountry)] <- names(nc[nc == max(nc)])
+```
+
+### Undersampling Gaussian Naive Bayes Model
+
+```{r}
+set.seed(1)
+### Randomize
+adults <- adults[sample(nrow(adults), replace=FALSE), ]
+
+### Labels
+adults_labels <- adults$income
+
+### calculate n for the undersample of majority class
+smp_size <- floor(.8 * nrow(adults[adults$income == ">50K",]))
+smp_size_plus <- smp_size+1
+min_pop_size <- as.numeric(nrow(adults[adults$income == ">50K",]))
+maj_pop_size <- as.numeric(nrow(adults[adults$income == "<=50K",]))
+
+min_pop <- adults[adults$income == ">50K",]
+maj_pop <- adults[adults$income == "<=50K",]
+
+min_sample <- min_pop[1:smp_size,]
+maj_sample <- maj_pop[1:smp_size,]
+
+adults_train <- rbind(min_sample,maj_sample)
+adults_test <- rbind(min_pop[smp_size_plus:min_pop_size,], 
+                     maj_pop[smp_size_plus:maj_pop_size,])
+
+adults_train_labels <- adults_train$income
+adults_train$income <- NULL
+adults_test_labels <- adults_test$income
+adults_test$income <- NULL
+
+# Non K-fold Gaussian Naive Bayes method
+adults_classifier <- naiveBayes(adults_train, adults_train_labels)
+adults_test_pred <- predict(adults_classifier, adults_test)
+
+CrossTable(adults_test_pred, adults_test_labels, prop.chisq=FALSE, prop.t=FALSE,
+           dnn=c("predicted","actual"))
+```
+
+### Oversampling Gaussian Naive Bayes Model
+
+```{r}
+set.seed(1)
+### Duplicate the >50K data to oversample use backup
+adults <- rbind(adults_bkp, adults_bkp[adults_bkp$income == ">50K",])
+
+### Randomize order of the data
+adults <- adults[sample(nrow(adults), replace=FALSE), ]
+
+### Labels
+adults_labels <- adults$income
+
+### calculate n for the oversample of minority class. 
+#### Note 70% of new minority class is greater than 100% of old minority class.
+smp_size <- floor(.7 * nrow(adults[adults$income == ">50K",]))
+smp_size_plus <- smp_size+1
+min_pop_size <- as.numeric(nrow(adults[adults$income == ">50K",]))
+maj_pop_size <- as.numeric(nrow(adults[adults$income == "<=50K",]))
+
+min_pop <- adults[adults$income == ">50K",]
+maj_pop <- adults[adults$income == "<=50K",]
+
+min_sample <- min_pop[1:smp_size,]
+maj_sample <- maj_pop[1:smp_size,]
+
+adults_train <- rbind(min_sample,maj_sample)
+adults_test <- rbind(min_pop[smp_size_plus:min_pop_size,], 
+                     maj_pop[smp_size_plus:maj_pop_size,])
+
+adults_train_labels <- adults_train$income
+adults_train$income <- NULL
+adults_test_labels <- adults_test$income
+adults_test$income <- NULL
+
+# Non K-fold Gaussian Naive Bayes method
+adults_classifier <- naiveBayes(adults_train, adults_train_labels)
+adults_test_pred <- predict(adults_classifier, adults_test)
+
+CrossTable(adults_test_pred, adults_test_labels, prop.chisq=FALSE, prop.t=FALSE,
+           dnn=c("predicted","actual"))
+```
+
+### Results
+
+Undersampling the majority classifier may improve the Gaussian Naive Bayes model 
+by ~5-7% and making it better than the KNN even. The oversampling method of 
+duplicating the >50K records and then taking a sample, creating an oversample,
+produced approximately the same results. Oversampling error was ~1% less than
+the original Gaussian Naive Bayes model. Oversampling was more biased towards 
+predicting as >50K. 
+
+In the case of undersampling, the FPR was ~4% and the FNR was ~65%. This means 
+that undersampling classified more data as >50K when it was <=50K. Oversampling 
+had FPR of ~13% and FNR of ~31%. 
+
+The strategies used for undersampling and oversampling were simple and could use
+more rigorous methods to possibly produce improved results, but this would need
+tested because it could be causing more overfitting.

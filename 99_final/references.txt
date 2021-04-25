@@ -1,0 +1,5 @@
+http://kdd.ics.uci.edu/databases/kddcup99/kddcup99.html
+
+https://journalofbigdata.springeropen.com/articles/10.1186/s40537-018-0145-4
+
+https://www.intechopen.com/books/security-and-privacy-from-a-legal-ethical-and-technical-perspective/machine-learning-applications-in-misuse-and-anomaly-detection

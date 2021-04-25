@@ -1,0 +1,8 @@
+{
+  "nodes": 32,
+  "batch_size": 100,
+  "activation": "sigmoid",
+  "learning_rate": 0.01,
+  "epochs": 50,
+  "optimizer": "adam"
+}

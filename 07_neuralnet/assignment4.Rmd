@@ -1,0 +1,373 @@
+---
+title: "Assignment 4"
+output: html_notebook
+---
+
+# Machine Learning Assignment 4
+
+## Problem 1
+
+```{r}
+library(keras)
+reuters <- dataset_reuters(num_words=10000)
+```
+
+```{r echo=T, results='hide'}
+str(reuters)
+```
+
+
+```{r}
+one_hot_encoding <- function(x, dimension=10000) {
+  encoded=matrix(0, length(x), dimension)
+  for(i in 1:length(x))
+    encoded[i, x[[i]]]=1
+  encoded
+}
+train_labels <- one_hot_encoding(reuters$train$y,46)
+train_data <- one_hot_encoding(reuters$train$x)
+
+test_labels <- one_hot_encoding(reuters$test$y,46)
+test_data <- one_hot_encoding(reuters$test$x)
+
+trainFull_labels <- train_labels
+trainFull_data <- train_data
+
+index <- 1:1000
+val_data <- train_data[index,]
+val_labels <- train_labels[index,]
+train_data <- train_data[-index,]
+train_labels = train_labels[-index,]
+```
+
+### Q1
+
+```{r}
+set.seed(1)
+## Model
+model <- keras_model_sequential() %>%
+  layer_dense(units=72, activation='relu', input_shape=c(10000)) %>%
+  layer_dense(units=72, activation='relu') %>% # 128 neurons
+  layer_dense(units=46, activation='softmax') # 46 category classifiers
+### Compile model
+model %>% compile(
+  optimizer='adam',
+  loss='categorical_crossentropy', # One Hot Encoded so use categorical
+  metrics=c('accuracy'))
+## Train Model
+model %>% fit(train_data, 
+              train_labels,
+              batch_size=120,
+              epochs=30,
+              validation_data=list(val_data, val_labels)
+              )
+
+## Evaluate Model
+model %>% evaluate(test_data, test_labels)
+```
+
+### Q2
+
+First 1000 examples assigned in prior chunk due to ease of code. A lot of the 
+runs showed continued overfitting as time went on, showing that a high epoch
+count may not be needed in most of the cases with this data set.
+
+1. Best run was nodes=128, batch=200, activation=tanh, rate=.001, epochs=30 with
+an accuracy of .956 and a validation accuracy of .805
+
+2. The plot of the max shows loss continues to overfit while accuracy doesn't 
+overfit past ~8 epochs. 
+
+3. Validation loss is gradually increasing. It stops decreasing at epoch 3.
+
+```{r}
+library(tensorflow)
+library(tfruns)
+#install_keras(method="conda", envname="r", tensorflow="gpu")
+
+set.seed(1)
+## Modeling
+runs <- tuning_run("reuters_hyper.R", 
+                   flags = list(nodes=c(64, 128, 392),
+                                learning_rate=c(0.05, 0.01, 0.001), 
+                                batch_size=c(100,200,500),
+                                epochs=c(30,50,100),
+                                activation=c("relu","sigmoid","tanh")),
+                   sample = 0.02 # Take a 2% sample
+                   )
+runs
+## Evaluate model
+view_run(runs$run_dir[which.max(runs$metric_val_accuracy)])
+```
+
+### Q3
+
+Accuracy reported ~.797
+
+```{r}
+set.seed(1)
+## Model
+model <- keras_model_sequential() %>%
+  layer_dense(units=128, activation='tanh', input_shape=c(10000)) %>%
+  layer_dense(units=128, activation='tanh') %>% # 128 neurons
+  layer_dense(units=46, activation='softmax') # 46 category classifiers
+### Compile model
+model %>% compile(optimizer = optimizer_adam(lr=.001), 
+                  loss = 'categorical_crossentropy',
+                  metrics = c('accuracy'))
+## Train Model
+model %>% fit(trainFull_data, 
+              trainFull_labels,
+              batch_size=200,
+              epochs=30,
+              validation_data=list(val_data, val_labels)
+              )
+
+## Evaluate Model
+model %>% evaluate(test_data, test_labels)
+```
+
+
+## Problem 2
+
+### Q1. 
+
+- 3 observations
+- 3 categoric, 17 numeric (one is predicted/salary)
+- 59 missing salary values
+- histogram is right tail skewed, majority of values less than 500
+
+```{r}
+hitters <- read.csv("data/hitters.csv", stringsAsFactors=TRUE)
+str(hitters)
+summary(hitters)
+colSums(is.na(hitters))
+hist(hitters$Salary)
+```
+
+### Q2
+
+Remove missing values
+
+```{r}
+hitters <- hitters[!is.na(hitters$Salary),]
+```
+
+### Q3
+
+- Categorical comparison: possible minor correlation for division otherwise none.
+Chi-Square test shows there is not enough evidence to conclude they are associated.
+- CAtBat, CHits, CHmRun, CRuns, CRBI, and CWalks show a correlation in plots but
+are also correlated with each other
+
+```{r}
+library(ggplot2)
+library(reshape2)
+# Categoric
+plot(hitters$Salary~hitters$League, col="red", 
+     xlab="league", ylab="sal")
+plot(hitters$Salary~hitters$Division, col="red", 
+     xlab="div", ylab="sal")
+plot(hitters$Salary~hitters$NewLeague, col="red", 
+     xlab="new league", ylab="sal")
+chisq.test(hitters$Salary, hitters$League)
+chisq.test(hitters$Salary, hitters$Division)
+chisq.test(hitters$Salary, hitters$NewLeague)
+
+# Numeric
+## Correlation Matrix
+get_upper_matrix <- function(matrix){
+    matrix[lower.tri(matrix)] <- NA
+    return(matrix)
+  }
+corr_mat <- melt(get_upper_matrix(cor(hitters[sapply(hitters,is.numeric)])))
+ggplot(data = corr_mat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color="white") +
+  scale_fill_gradient2(midpoint=0,limit=c(-1,1)) +
+  theme(axis.text.x=element_text(angle=45, vjust=1.2, hjust=1.25))
+## Scatter plots and other tests to validate
+plot(hitters$Salary~hitters$CAtBat, col="red", 
+     xlab="CAtBat", ylab="sal")
+plot(hitters$Salary~hitters$CHits, col="red", 
+     xlab="CHits", ylab="sal")
+plot(hitters$Salary~hitters$CHmRun, col="red", 
+     xlab="CHmRun", ylab="sal")
+plot(hitters$Salary~hitters$CRuns, col="red", 
+     xlab="CRuns", ylab="sal")
+plot(hitters$Salary~hitters$CRBI, col="red", 
+     xlab="CRBI", ylab="sal")
+plot(hitters$Salary~hitters$CWalks, col="red", 
+     xlab="CWalks", ylab="sal")
+```
+
+### Q4
+
+Set seed
+
+```{r}
+set.seed(1)
+```
+
+### Q5
+
+```{r}
+library(caret)
+set.seed(1)
+inTrain = createDataPartition(hitters$Salary, p=0.9, list=FALSE)
+train_data = hitters[inTrain,]
+test_data = hitters[-inTrain,] 
+```
+
+### Q6 
+
+Convert categoric to numeric
+
+```{r}
+if(is.factor(train_data$League)){
+  train_data$League <- as.numeric(train_data$League)-1
+  train_data$Division <- as.numeric(train_data$Division)-1
+  train_data$NewLeague <- as.numeric(train_data$NewLeague)-1
+  test_data$League <- as.numeric(test_data$League)-1
+  test_data$Division <- as.numeric(test_data$Division)-1
+  test_data$NewLeague <- as.numeric(test_data$NewLeague)-1
+}
+```
+
+### Q7
+
+```{r}
+train_data$Salary <- log(train_data$Salary)
+test_data$Salary <- log(test_data$Salary)
+```
+
+### Q8
+
+```{r}
+set.seed(1)
+inVal <- createDataPartition(train_data$Salary, p=0.1, list=FALSE)
+train_data <- train_data[-inVal,]
+val_data <- train_data[inVal,]
+val_data <- val_data[!is.na(val_data$Salary),]
+```
+
+### Q9
+
+- Ran it for 2 models. Best RMSE was for nodes=128, batch=50, activation=tanh, 
+rate=.05, epochs=50 at ~.49
+- Not enough data to show overfit, would need higher epoch
+- Validation Loss appears to settle between 25 and 30 epochs
+
+```{r}
+cols <- !names(hitters) %in% c("Salary")
+train_league <- train_data$League
+train_div <- train_data$Division
+train_newleague <- train_data$NewLeague
+train_labels <- train_data$Salary
+val_league <- val_data$League
+val_div <- val_data$Division
+val_newleague <- val_data$NewLeague
+val_labels <- val_data$Salary
+test_league <- test_data$League
+test_div <- test_data$Division
+test_newleague <- test_data$NewLeague
+test_labels <- test_data$Salary
+
+train_data <- scale(train_data[,cols])
+train_data[,"League"] <- train_league
+train_data[,"Division"] <- train_div
+train_data[,"NewLeague"] <- train_newleague
+
+col_means_train <- attr(train_data, "scaled:center")
+col_stddevs_train <- attr(train_data, "scaled:scale")
+
+# Apply training normalization to test data
+val_data <- scale(val_data[,cols], 
+                     center=col_means_train, 
+                     scale=col_stddevs_train)
+val_data[,"League"] <- val_league
+val_data[,"Division"] <- val_div
+val_data[,"NewLeague"] <- val_newleague
+
+test_data <- scale(test_data[,cols], 
+                      center=col_means_train, 
+                      scale=col_stddevs_train)
+test_data[,"League"] <- test_league
+test_data[,"Division"] <- test_div
+test_data[,"NewLeague"] <- test_newleague
+```
+
+```{r}
+library(tensorflow)
+library(tfruns)
+set.seed(1)
+runs <- tuning_run("hitters_hyper.R", 
+                   flags = list(nodes=c(16, 32, 128),
+                                learning_rate=c(0.05, 0.01, 0.001), 
+                                batch_size=c(50,100),
+                                epochs=c(50),
+                                activation=c("relu","sigmoid","tanh")),
+                   sample = 0.02 # Take a 2% sample
+                   )
+runs
+view_run(runs$run_dir[1])
+```
+
+### Q10
+
+Terrible performance. RMSE doesn't stay the same due to how seeds are handled. 
+It is >300 though and unusable. 
+
+nodes=128, batch=50, activation=tanh, rate=.05, epochs=50
+
+```{r}
+set.seed(1)
+# Model
+model <- keras_model_sequential() %>%
+  layer_dense(units=128, activation='tanh', 
+              input_shape=dim(train_data)[2]) %>%
+  layer_dense(units=128, activation='tanh') %>%
+  layer_dense(units=1)
+
+# Compile Model
+model %>% compile(loss="mse",
+                  optimizer=optimizer_adam(lr=.05))
+
+# Train Model
+model %>% fit(train_data, 
+              train_labels, 
+              batch_size=50, 
+              epochs=50, 
+              validation_data=list(val_data, val_labels)
+              )
+
+# Predict
+predict_labels <- model %>% predict(test_data)
+
+rmse <- function(x,y) {
+  return((mean((x-y)^2))^.5)
+}
+
+rmse(exp(predict_labels),exp(test_labels))
+```
+
+### Q11
+
+RMSE is still high at ~390 
+
+```{r}
+library(caret)
+set.seed(1)
+train_data = hitters[inTrain,]
+test_data = hitters[-inTrain,] 
+attach(test_data)
+train.control <- trainControl(method="cv", number=10)
+hitters_kf <- train(Salary~., 
+                      data=train_data, # should be college_train
+                      method="lm", 
+                      trControl=train.control)
+summary(hitters_kf)
+hitters_pred <- predict(hitters_kf, test_data)
+RMSE <- sqrt(mean(abs(test_data$Salary-hitters_pred)^2))
+RMSE
+```
+

@@ -1,0 +1,31 @@
+
+> # Parameters for dataset
+> FLAGS <-flags(flag_numeric("nodes", 128),
++               flag_numeric("batch_size", 100),
++               flag_string("a ..." ... [TRUNCATED] 
+
+> # Model
+> model <- keras_model_sequential() %>%
++   layer_dense(units=FLAGS$nodes, 
++               activation=FLAGS$activation, 
++               in .... [TRUNCATED] 
+
+> # Compile Model
+> model %>% compile(loss="mse",
++                   optimizer=FLAGS$optimizer)
+
+> # Train Model
+> model %>% fit(train_data, 
++               train_labels, 
++               batch_size=FLAGS$batch_size, 
++               epochs=FLAGS .... [TRUNCATED] 
+
+> # Predict
+> predict_labels <- model %>% predict(test_data)
+
+> rmse <- function(x,y) {
++   return((mean((x-y)^2))^.5)
++ }
+
+> rmse(predict_labels,test_labels)
+[1] 0.547108

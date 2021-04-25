@@ -1,0 +1,7 @@
+{
+  "nodes": 32,
+  "batch_size": 250,
+  "activation": "tanh",
+  "learning_rate": 0.001,
+  "epochs": 50
+}
