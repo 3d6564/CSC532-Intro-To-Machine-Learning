@@ -1,0 +1,19 @@
+
+> # Parameters for dataset
+> FLAGS <-flags(flag_numeric("nodes", 30),
++               flag_numeric("batch_size", 100),
++               flag_string("ac ..." ... [TRUNCATED] 
+
+> # Model
+> model <- keras_model_sequential() %>%
++   layer_dense(units=FLAGS$nodes, activation=FLAGS$activation, input_shape=dim(kdd_train_x_ohe)[2]) .... [TRUNCATED] 
+
+> # Compile Model
+> model %>% compile(optimizer = optimizer_adam(lr=FLAGS$learning_rate), 
++                   loss = 'categorical_crossentropy',
++    .... [TRUNCATED] 
+
+> # Train Model
+> model %>% fit(as.matrix(kdd_train_x_ohe), as.matrix(kdd_train_y_ohe), 
++               batch_size=FLAGS$batch_size,
++                .... [TRUNCATED] 
