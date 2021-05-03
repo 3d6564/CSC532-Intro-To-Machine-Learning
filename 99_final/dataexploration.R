@@ -1,20 +1,22 @@
-library(ggplot2)
-library(forcats)
-library(dplyr)
-library(reshape2)
-library(DMwR)
 library(caret)
 library(doParallel)
-library(klaR)
+library(dplyr)
+library(forcats)
+library(ggplot2)
 library(gmodels)
-
+library(pROC)
+library(data.table)
+library(keras)
+library(mltools)
+library(tfruns)
+install_keras(method="conda", envname="r", tensorflow="gpu")
 options(scipen=10000)
 
 #Data Import
 kdd_header = read.csv("99_final/data/header.csv",header=FALSE)
 kdd_header = as.character(unlist(kdd_header[1,]))
 
-kdd = read.csv("99_final/data/kddcup.csv", 
+kdd = read.csv("99_final/data/kddcup_10percent.csv", 
                header=FALSE,
                stringsAsFactors=TRUE,
                col.names=kdd_header)
@@ -85,6 +87,8 @@ corr_filt = corr_mat[abs(corr_mat$value) > .9 &
                        !is.na(corr_mat$value),]
 corr_filt[order(corr_filt$Var1),]
 
+# Columns to drop
+## Drop for correlation
 kdd$num_compromised = NULL
 kdd$serror_rate = NULL
 kdd$rerror_rate = NULL
@@ -94,7 +98,13 @@ kdd$srv_count = NULL
 kdd$dst_host_srv_rerror_rate = NULL
 kdd$dst_host_same_srv_rate = NULL
 kdd$dst_host_srv_serror_rate = NULL
+kdd$is_hot_login = NULL
+## Drop to reduce class imbalance and use category instead
+kdd$eventType = NULL
+## Drop due to complexity in factor levels (70 levels)
+kdd$service = NULL
 
+# Categoric
 ## Rebuild correlation matrix
 corr_mat = melt(get_upper_matrix(cor(kdd[sapply(kdd,is.numeric)])))
 ggplot(data = corr_mat, aes(x=Var1, y=Var2, fill=value)) + 
@@ -103,6 +113,7 @@ ggplot(data = corr_mat, aes(x=Var1, y=Var2, fill=value)) +
   theme(axis.text.x=element_text(angle=90, vjust=.5, hjust=1))
 
 ## protocol_type
+as.data.frame(sort(table(kdd$protocol_type)))
 ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(protocol_type)))) +
   geom_bar(stat="count", fill="steelblue") +
   xlab("protocol type") +
@@ -110,9 +121,6 @@ ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(protocol_type)))) +
   scale_y_continuous(n.breaks=10) +
   theme_minimal() +
   coord_flip()
-
-### service
-as.data.frame(sort(table(kdd$service)))
 
 ### flag
 as.data.frame(sort(table(kdd$flag)))
@@ -124,11 +132,9 @@ ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(flag)))) +
   theme_minimal() +
   coord_flip()
 
-
-## eventType
-as.data.frame(sort(table(kdd$eventType)))
-
-ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(eventType)))) +
+## eventCategory
+as.data.frame(sort(table(kdd$eventCategory)))
+ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(eventCategory)))) +
   geom_bar(stat="count", fill="steelblue") +
   xlab("event type") +
   ylab("count of event types") +
@@ -136,67 +142,253 @@ ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(eventType)))) +
   theme_minimal() +
   coord_flip()
 
-## eventCategory
-as.data.frame(sort(table(kdd$eventCategory)))
-
-ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(eventCategory)))) +
+## land
+as.data.frame(sort(table(kdd$land)))
+ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(land)))) +
   geom_bar(stat="count", fill="steelblue") +
-  xlab("event category") +
-  ylab("count of event category") +
+  xlab("land type") +
+  ylab("count of land type") +
   scale_y_continuous(n.breaks=10) +
   theme_minimal() +
   coord_flip()
 
-## src_bytes and dst_bytes
-plot(table(kdd$src_bytes))
+## logged in
+as.data.frame(sort(table(kdd$logged_in)))
+ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(logged_in)))) +
+  geom_bar(stat="count", fill="steelblue") +
+  xlab("logged in status") +
+  ylab("count of logged in status") +
+  scale_y_continuous(n.breaks=10) +
+  theme_minimal() +
+  coord_flip()
 
-# Models
+## root shell
+as.data.frame(sort(table(kdd$root_shell)))
+ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(root_shell)))) +
+  geom_bar(stat="count", fill="steelblue") +
+  xlab("shell level") +
+  ylab("count of shell level") +
+  scale_y_continuous(n.breaks=10) +
+  theme_minimal() +
+  coord_flip()
+
+## su attempt
+as.data.frame(sort(table(kdd$su_attempted)))
+ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(su_attempted)))) +
+  geom_bar(stat="count", fill="steelblue") +
+  xlab("su attempt") +
+  ylab("count of su attempt") +
+  scale_y_continuous(n.breaks=10) +
+  theme_minimal() +
+  coord_flip()
+
+## guest login
+as.data.frame(sort(table(kdd$is_guest_login)))
+ggplot(kdd, mapping=aes(x=fct_rev(fct_infreq(is_guest_login)))) +
+  geom_bar(stat="count", fill="steelblue") +
+  xlab("guest login") +
+  ylab("count of guest login") +
+  scale_y_continuous(n.breaks=10) +
+  theme_minimal() +
+  coord_flip()
+
+# Numeric
+## Outliers excluded to aid visualizations
+colfunc = colorRampPalette(c("orange2","orangered4"))
+
+boxplot(duration~eventCategory, data=kdd,
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(src_bytes~eventCategory, data=kdd,
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_bytes~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(count~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_host_count~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_host_srv_count~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(hot~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(num_file_creations~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(same_srv_rate~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(diff_srv_rate~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_host_diff_srv_rate~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_host_same_src_port_rate~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_host_srv_diff_host_rate~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_host_serror_rate~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+boxplot(dst_host_rerror_rate~eventCategory, data=kdd, 
+        col=colfunc(length(levels(kdd$eventCategory))),
+        outline=FALSE)
+
+# Subsetting Data
 set.seed(1)
-kdd$eventType = NULL
-
-## Train and test data - standard sampling
 train_index = createDataPartition(kdd$eventCategory, p=0.9, list=FALSE)
+kdd_test_x = as.data.frame(kdd[-train_index,-30])
+kdd_test_y = as.data.frame(kdd[-train_index, 30])
+colnames(kdd_test_y)[1] = "eventCategory"
 kdd_train = kdd[train_index,]
 
-kdd_test = kdd[-train_index,-32]
-kdd_test_y = kdd[-train_index,32]
+val_index = createDataPartition(kdd_train$eventCategory, p=0.1, list=FALSE)
+kdd_val_x = as.data.frame(kdd_train[val_index,-30])
+kdd_val_y = as.data.frame(kdd_train[val_index, 30])
+colnames(kdd_val_y)[1] = "eventCategory"
+kdd_train_x = kdd_train[-val_index,-30]
+kdd_train_y = kdd_train[-val_index, 30]
 
-# Under and Oversample
-## 1000 gave ~.866 accuracy
-## 10000 gave ~.907 accuracy
-table(kdd_train$eventCategory)
-kdd_smote = SMOTE(form=eventCategory~., data=kdd_train, k=5, perc.over=10000)
-table(kdd_smote$eventCategory)
-
-kdd_bind = rbind(kdd_train[kdd_train$eventCategory != "u2r",], kdd_smote[kdd_smote$eventCategory == "u2r",])
-table(kdd_bind$eventCategory)
-
-kdd_down = downSample(x=kdd_bind, y=kdd_bind$eventCategory, list=FALSE)
-table(kdd_down$eventCategory)
-
-kdd_down_x = kdd_down[,-32]
-kdd_down_y = kdd_down[,32]
-
-## Naive Bayes
+# Naive Bayes
+## TP of ~70%
+## ~.92-93 accuracy with 5 fold cv
+set.seed(1)
 cl = makePSOCKcluster(detectCores(logical=FALSE))
 registerDoParallel(cl)
-kdd_classifier <- naiveBayes(kdd_down_x, kdd_down_y)
-test_pred <- predict(kdd_classifier, kdd_test)
+kdd_nb = caret::train(kdd_train_x, kdd_train_y, 
+                      method="nb",
+                      trControl=trainControl(method="cv",
+                                             number=8,
+                                             sampling="down",
+                                             allowParallel=TRUE,
+                                             classProbs=TRUE,
+                                             savePredictions=TRUE))
+probs_nb = predict(kdd_nb, kdd_test_x, type="prob")
+raw_nb = predict(kdd_nb, kdd_test_x, type="raw")
 stopCluster(cl)
 
-CrossTable(test_pred, kdd_test_y, prop.chisq=FALSE, prop.t=FALSE,
+CrossTable(raw_nb, kdd_test_y$eventCategory, prop.chisq=FALSE, prop.t=FALSE,
+           dnn=c("predicted","actual"))
+auc(multiclass.roc(kdd_test_y$eventCategory, probs_nb))
+
+# Random Forest
+## TP ~97%
+## Appears to net ~99% accuracy on test
+set.seed(1)
+cl = makePSOCKcluster(detectCores(logical=FALSE))
+registerDoParallel(cl)
+kdd_rf = caret::train(kdd_train_x,kdd_train_y,
+                      method="rf",
+                      trControl=trainControl(method="cv",
+                                             number=10,
+                                             sampling="down",
+                                             allowParallel=TRUE,
+                                             savePredictions=TRUE,
+                                             classProbs=TRUE,
+                                             verboseIter=TRUE),
+                      ntree=15)
+probs_rf = predict(kdd_rf, kdd_test_x, type="prob")
+raw_rf = predict(kdd_rf, kdd_test_x, type="raw")
+stopCluster(cl)
+
+CrossTable(raw_rf, kdd_test_y$eventCategory, prop.chisq=FALSE, prop.t=FALSE,
+           dnn=c("predicted","actual"))
+auc(multiclass.roc(as.factor(kdd_test_y$eventCategory), probs_rf))
+varImp(kdd_rf)
+
+# ANN
+## One Hot Encoding
+set.seed(1)
+kdd_train_y_df = as.data.frame(kdd_train_y)
+colnames(kdd_train_y_df)[1] = "eventCategory"
+
+kdd_train_y_ohe = as.data.frame(one_hot(as.data.table(kdd_train_y_df)))
+kdd_train_x_ohe = as.data.frame(one_hot(as.data.table(kdd_train_x)))
+kdd_val_y_ohe = as.data.frame(one_hot(as.data.table(kdd_val_y)))
+kdd_val_x_ohe = as.data.frame(one_hot(as.data.table(kdd_val_x)))
+kdd_test_y_ohe = as.data.frame(one_hot(as.data.table(kdd_test_y)))
+kdd_test_x_ohe = as.data.frame(one_hot(as.data.table(kdd_test_x)))
+
+## Train
+## Original flags with 2% sample: 
+### nodes=8,32,64;lr=.1,.01,.001;batch=32,50,100;epoch=50,100;activation=relu,sigmoid,tanh
+## Best flag:
+### node=64,batch=20,activation=relu,lr=.001,epoch=10
+cl = makePSOCKcluster(detectCores(logical=FALSE))
+registerDoParallel(cl)
+runs <- tuning_run("99_final/kdd_hyper.R", 
+                   flags = list(nodes=c(32),
+                                learning_rate=c(0.001), 
+                                batch_size=c(32),
+                                epochs=c(100),
+                                activation=c("relu"))
+                   )
+stopCluster(cl)
+
+runs
+view_run(runs$run_dir[which.max(runs$metric_val_accuracy)])
+## Evaluate Model
+### Model
+model <- keras_model_sequential() %>%
+  layer_dense(units=32, activation="relu", input_shape=dim(kdd_train_x_ohe)[2]) %>%
+  layer_dense(units=32, activation="relu") %>% 
+  layer_dense(units=5, activation='softmax') # 5 category classifiers
+### Compile Model
+model %>% compile(optimizer = optimizer_adam(lr=.001), 
+                  loss = 'categorical_crossentropy',
+                  metrics = c('accuracy'))
+### Train Model
+model %>% fit(as.matrix(kdd_train_x_ohe), as.matrix(kdd_train_y_ohe), 
+              batch_size=32,
+              epochs=100, 
+              validation_data=list(as.matrix(kdd_val_x_ohe), as.matrix(kdd_val_y_ohe))
+)
+model %>% evaluate(as.matrix(kdd_test_x_ohe), as.matrix(kdd_test_y_ohe))
+predictions = model %>% predict(as.matrix(kdd_test_x_ohe))
+
+### Convert column names and object class to evaluate performance
+colnames(predictions) = colnames(kdd_test_y_ohe)
+predictions = as.data.frame(predictions)
+kdd_test_y_ohe = as.data.frame(kdd_test_y_ohe)
+predictions = predictions %>% rename("dos" = "eventCategory_dos",
+                                     "normal" = "eventCategory_normal",
+                                     "probe" = "eventCategory_probe",
+                                     "r21" = "eventCategory_r21",
+                                     "u2r" = "eventCategory_u2r")
+kdd_test_y_ohe = kdd_test_y_ohe %>% rename("dos" = "eventCategory_dos",
+                                           "normal" = "eventCategory_normal",
+                                           "probe" = "eventCategory_probe",
+                                           "r21" = "eventCategory_r21",
+                                           "u2r" = "eventCategory_u2r")
+### Generate CrossTable and AUC
+w <- which(predictions==apply(predictions[,], 1, max), arr.ind = TRUE)
+predictions_ct <- toupper(names(round(predictions))[w[order(w[,1]),2]])
+w2 <- which(kdd_test_y_ohe==apply(kdd_test_y_ohe[,], 1, max), arr.ind = TRUE)
+kdd_test_y_ct <- toupper(names(kdd_test_y_ohe)[w2[order(w2[,1]),2]])
+
+CrossTable(predictions_ct, kdd_test_y_ct, prop.chisq=FALSE, prop.t=FALSE,
            dnn=c("predicted","actual"))
 
-## Alt Naive Bayes
-kdd_nb = train(kdd_down_x, kdd_down_y, 
-               method="nb",
-               trControl=trainControl(method="cv",
-                                      number=5,
-                                      allowParallel=TRUE,
-                                      savePredictions="all"))
-predic_nb = predict(kdd_nb, as.matrix(kdd_test))
-kdd_nb
-## Decision Tree
-
-
-## ANN
+auc(multiclass.roc(kdd_test_y$eventCategory, predictions))
